@@ -1,0 +1,318 @@
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Sales Tax Calculator for Makkajai Coding Challenge
+ * 
+ * Handles basic tax calculation (10% on most items) and import duty (5% on imported goods).
+ * Books, food, and medical products are exempt from basic tax.
+ * All taxes are rounded up to the nearest 0.05 as per requirements.
+ * 
+ * @author Sriram
+ */
+public class SalesTaxApplication {
+    
+    // enum to categorize different types of items
+    enum ItemCategory {
+        BOOK,
+        FOOD,
+        MEDICAL,
+        OTHER
+    }
+    
+    /**
+     * Represents a single item with its properties
+     */
+    static class Item {
+        private final String name;
+        private final BigDecimal price;
+        private final ItemCategory category;
+        private final boolean imported;
+
+        public Item(String name, BigDecimal price, ItemCategory category, boolean imported) {
+            this.name = name;
+            this.price = price;
+            this.category = category;
+            this.imported = imported;
+        }
+
+        //  getters 
+
+        public String getName() { return name; }
+        public BigDecimal getPrice() { return price; }
+        public ItemCategory getCategory() { return category; }
+        public boolean isImported() { return imported; }
+    }
+    
+    /**
+     * Handles all the tax calculation logic
+     */
+    static class TaxCalculator {
+        // Tax rates as specified in the problem
+        private static final BigDecimal BASIC_TAX_RATE = new BigDecimal("0.10"); // 10%
+        private static final BigDecimal IMPORT_TAX_RATE = new BigDecimal("0.05"); // 5%
+        private static final BigDecimal ROUNDING_PRECISION = new BigDecimal("0.05"); // Round to nearest 0.05
+
+        /**
+         * Main method to calculate total tax for an item
+         * Combines basic tax and import duty
+         */
+        public BigDecimal calculateTax(Item item) {
+            BigDecimal basicTax = calculateBasicTax(item);
+            BigDecimal importTax = calculateImportTax(item);
+            return basicTax.add(importTax);
+        }
+
+        /**
+         * Calculate basic sales tax (10% for most items)
+         * Books, food, and medical products are exempt
+         */
+        private BigDecimal calculateBasicTax(Item item) {
+            if (isExemptFromBasicTax(item.getCategory())) {
+                return BigDecimal.ZERO; // No tax for exempt items
+            }
+            return roundUpToNearest005(item.getPrice().multiply(BASIC_TAX_RATE));
+        }
+
+        /**
+         * Calculate import duty (5% on all imported items, no exceptions)
+         */
+        private BigDecimal calculateImportTax(Item item) {
+            if (!item.isImported()) {
+                return BigDecimal.ZERO; // Only imported items get this tax
+            }
+            return roundUpToNearest005(item.getPrice().multiply(IMPORT_TAX_RATE));
+        }
+
+        /**
+         * Check if item is exempt from basic sales tax
+         */
+        private boolean isExemptFromBasicTax(ItemCategory category) {
+            return category == ItemCategory.BOOK || 
+                   category == ItemCategory.FOOD || 
+                   category == ItemCategory.MEDICAL;
+        }
+
+        /**
+         * Round up to nearest 0.05 as per the problem requiremts..
+         */
+        private BigDecimal roundUpToNearest005(BigDecimal amount) {
+            // Divide by 0.05, round up, then multiply back
+            BigDecimal divided = amount.divide(ROUNDING_PRECISION, RoundingMode.UP);
+            BigDecimal rounded = divided.setScale(0, RoundingMode.UP);
+            return rounded.multiply(ROUNDING_PRECISION);
+        }
+    }
+    
+    /**
+     * Represents a line item on the receipt
+     * Combines the original item with calculated tax and final price
+     */
+    static class ReceiptItem {
+        private final Item item;
+        private final int quantity;
+        private final BigDecimal tax;
+        private final BigDecimal totalPrice; // item price + tax
+
+        public ReceiptItem(Item item, int quantity, BigDecimal tax) {
+            this.item = item;
+            this.quantity = quantity;
+            this.tax = tax;
+            this.totalPrice = item.getPrice().add(tax);
+        }
+
+        // Getters for receipt printing
+        public Item getItem() { return item; }
+        public int getQuantity() { return quantity; }
+        public BigDecimal getTax() { return tax; }
+        public BigDecimal getTotalPrice() { return totalPrice; }
+    }
+    
+    /**
+     * Handles receipt generation and printing
+     * Keeps track of all items and calculates totals
+     */
+    static class Receipt {
+        private final List<ReceiptItem> items;
+        private final DecimalFormat currencyFormat;
+
+        public Receipt() {
+            this.items = new ArrayList<>();
+            this.currencyFormat = new DecimalFormat("0.00"); // Always show 2 decimal places
+        }
+
+        public void addItem(ReceiptItem receiptItem) {
+            items.add(receiptItem);
+        }
+
+        /**
+         * Sum up all the taxes from individual items
+         */
+        public BigDecimal getTotalTax() {
+            return items.stream()
+                    .map(ReceiptItem::getTax)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+
+        /**
+         * Sum up all the final prices (item price + tax)
+         */
+        public BigDecimal getTotalAmount() {
+            return items.stream()
+                    .map(ReceiptItem::getTotalPrice)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        }
+
+        /**
+         * Print the receipt in the required format
+         * Format: quantity + name + total price, then tax summary
+         */
+        public void printReceipt() {
+            // Print each item line
+            for (ReceiptItem receiptItem : items) {
+                System.out.printf("%d %s: %s%n",
+                        receiptItem.getQuantity(),
+                        receiptItem.getItem().getName(),
+                        currencyFormat.format(receiptItem.getTotalPrice()));
+            }
+            // Print tax and total summary
+            System.out.printf("Sales Taxes: %s%n", currencyFormat.format(getTotalTax()));
+            System.out.printf("Total: %s%n", currencyFormat.format(getTotalAmount()));
+            System.out.println(); // Extra line for readability
+        }
+    }
+    
+    /**
+     * Parses the input strings to create Item objects
+     * Handles the regex matching and item categorization
+     */
+    static class ItemParser {
+        // Regex to match: "1 book at 12.49"
+        private static final Pattern ITEM_PATTERN = Pattern.compile("(\\d+)\\s+(.+?)\\s+at\\s+(\\d+\\.\\d+)");
+        
+        /**
+         * Parse input string and create an Item object
+         * Example input: "1 imported bottle of perfume at 27.99"
+         */
+        public Item parseItem(String input) {
+            Matcher matcher = ITEM_PATTERN.matcher(input);
+            if (!matcher.matches()) {
+                throw new IllegalArgumentException("Invalid item format: " + input);
+            }
+            
+            String name = matcher.group(2);
+            BigDecimal price = new BigDecimal(matcher.group(3));
+            boolean imported = name.toLowerCase().contains("imported"); // Simple keyword check
+            ItemCategory category = determineCategory(name);
+            
+            return new Item(name, price, category, imported);
+        }
+        
+        /**
+         * Extract quantity from the input string
+         */
+        public int parseQuantity(String input) {
+            Matcher matcher = ITEM_PATTERN.matcher(input);
+            if (!matcher.matches()) {
+                throw new IllegalArgumentException("Invalid item format: " + input);
+            }
+            return Integer.parseInt(matcher.group(1));
+        }
+        
+        /**
+         * Determine item category based on keywords in the name
+         * This is a simple approach - in real world might need more deep complex logic..
+         */
+        private ItemCategory determineCategory(String name) {
+            String lowerName = name.toLowerCase();
+            
+            if (lowerName.contains("book")) {
+                return ItemCategory.BOOK;
+            } else if (lowerName.contains("chocolate") || lowerName.contains("bar")) {
+                return ItemCategory.FOOD; // Treating chocolate as food
+            } else if (lowerName.contains("pills")) {
+                return ItemCategory.MEDICAL;
+            } else {
+                return ItemCategory.OTHER; // Everything else gets taxed
+            }
+        }
+    }
+
+    // Main application components
+    private final TaxCalculator taxCalculator;
+    private final ItemParser itemParser;
+
+    public SalesTaxApplication() {
+        this.taxCalculator = new TaxCalculator();
+        this.itemParser = new ItemParser();
+    }
+
+    /**
+     * Process all the test cases from the problem statement
+     */
+    public void processShoppingBaskets() {
+        System.out.println("Sales Tax Receipt Generator - Makkajai Coding Challenge\n");
+        
+        // Test data from the problem statement
+        List<List<String>> testInputs = Arrays.asList(
+            // Test case 1: Book (exempt), CD (taxable), chocolate bar (food - exempt)
+            Arrays.asList(
+                "1 book at 12.49",
+                "1 music CD at 14.99",
+                "1 chocolate bar at 0.85"
+            ),
+            // Test case 2: Both items are imported
+            Arrays.asList(
+                "1 imported box of chocolates at 10.00",
+                "1 imported bottle of perfume at 47.50"
+            ),
+            // Test case 3: Mix of imported/local and different categories
+            Arrays.asList(
+                "1 imported bottle of perfume at 27.99",
+                "1 bottle of perfume at 18.99",
+                "1 packet of headache pills at 9.75",
+                "1 box of imported chocolates at 11.25"
+            )
+        );
+
+        // Process each test case
+        for (int i = 0; i < testInputs.size(); i++) {
+            System.out.printf("Output %d:%n", i + 1);
+            processBasket(testInputs.get(i));
+        }
+    }
+
+    /**
+     * Process a single shopping basket and generate receipt
+     */
+    private void processBasket(List<String> itemInputs) {
+        Receipt receipt = new Receipt();
+        
+        // Parse each item, calculate tax, and add to receipt
+        for (String itemInput : itemInputs) {
+            Item item = itemParser.parseItem(itemInput);
+            int quantity = itemParser.parseQuantity(itemInput);
+            
+            BigDecimal tax = taxCalculator.calculateTax(item);
+            ReceiptItem receiptItem = new ReceiptItem(item, quantity, tax);
+            receipt.addItem(receiptItem);
+        }
+        
+        // Print the final receipt
+        receipt.printReceipt();
+    }
+
+    /**
+     * Main method 
+     */
+    public static void main(String[] args) {
+        SalesTaxApplication app = new SalesTaxApplication();
+        app.processShoppingBaskets();
+    }
+}
